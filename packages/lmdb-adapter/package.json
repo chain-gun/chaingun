@@ -86,11 +86,6 @@
       "build/main/**/*.js"
     ]
   },
-  "config": {
-    "commitizen": {
-      "path": "cz-conventional-changelog"
-    }
-  },
   "prettier": {
     "singleQuote": true,
     "semi": false
@@ -101,5 +96,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "ebccea2fd2ff0e65773acbd92914b716a3b46196"
+  "gitHead": "70ae4dbc9cc685989abc04f8fb8c52848b2553fb"
 }
