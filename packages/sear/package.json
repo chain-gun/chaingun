@@ -111,5 +111,6 @@
   "prettier": {
     "singleQuote": true,
     "semi": false
-  }
+  },
+  "gitHead": "ebccea2fd2ff0e65773acbd92914b716a3b46196"
 }
