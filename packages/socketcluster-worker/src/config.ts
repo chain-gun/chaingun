@@ -1,7 +1,7 @@
 export const PEERS_CONFIG_FILE = process.env.PEERS_CONFIG_FILE || './peers.yaml'
 
 export const PEER_SYNC_INTERVAL = readInt(process.env.PEER_SYNC_INTERVAL, 1000)
-export const PEER_BACK_SYNC = readInt(process.env.PEER_BACK_SYNC)
+export const PEER_BACK_SYNC = readInt(process.env.PEER_BACK_SYNC, 0)
 export const PEER_MAX_STALENESS = readInt(process.env.PEER_MAX_STALENESS)
 export const PEER_BATCH_INTERVAL = readInt(process.env.PEER_BATCH_INTERVAL)
 
