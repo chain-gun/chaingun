@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "build": "lerna run build --since"
+    "buildall": "lerna run build --since"
   },
   "private": true,
   "workspaces": [
@@ -8,6 +8,7 @@
   ],
   "name": "chaingun-workspace",
   "devDependencies": {
+    "husky": "^4.2.1",
     "lerna": "^3.20.2"
   }
 }
