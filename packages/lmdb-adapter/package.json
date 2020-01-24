@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/lmdb-adapter",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Standard Gun Graph Adapter interface for LMDB",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",

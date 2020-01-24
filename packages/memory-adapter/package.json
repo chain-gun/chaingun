@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/memory-adapter",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "In Memory graph adapter for ChainGun",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
