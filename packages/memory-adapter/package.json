@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "@chaingun/crdt": "^0.0.2",
-    "@chaingun/types": "^0.0.3",
+    "@chaingun/types": "^0.0.7",
     "ramda": "^0.26.1"
   },
   "devDependencies": {
