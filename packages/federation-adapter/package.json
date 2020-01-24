@@ -50,8 +50,8 @@
     "node": ">=8.9"
   },
   "dependencies": {
-    "@chaingun/crdt": "^0.0.2",
-    "@chaingun/types": "^0.0.7",
+    "@chaingun/crdt": "^0.18.0",
+    "@chaingun/types": "^0.18.0",
     "uuid": "^3.3.3"
   },
   "devDependencies": {
@@ -93,5 +93,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "70ae4dbc9cc685989abc04f8fb8c52848b2553fb"
+  "gitHead": "2e5330c934c7dd07983471caef30c3489a819e2c"
 }

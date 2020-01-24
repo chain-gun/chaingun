@@ -50,10 +50,10 @@
     "node": ">=8.9"
   },
   "dependencies": {
-    "@chaingun/http-adapter": "^0.7.0",
+    "@chaingun/http-adapter": "^0.18.0",
     "@chaingun/lmdb-adapter": "^0.18.0",
     "@chaingun/memory-adapter": "^0.18.0",
-    "@chaingun/types": "^0.0.7"
+    "@chaingun/types": "^0.18.0"
   },
   "devDependencies": {
     "@bitjson/npm-scripts-info": "^1.0.0",
@@ -94,5 +94,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "70ae4dbc9cc685989abc04f8fb8c52848b2553fb"
+  "gitHead": "2e5330c934c7dd07983471caef30c3489a819e2c"
 }
