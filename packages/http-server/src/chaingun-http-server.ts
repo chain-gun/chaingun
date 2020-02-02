@@ -124,7 +124,17 @@ export async function handlePut(
   }
 }
 
-export function createServer(adapter: GunGraphAdapter): express.Application {
+interface ServerOpts {
+  readonly preprocessPut?: (
+    req: Request,
+    res: Response
+  ) => Promise<void | boolean>
+}
+
+export function createServer(
+  adapter: GunGraphAdapter,
+  opts?: ServerOpts
+): express.Application {
   const app = express()
   app.use(express.json())
 
@@ -140,7 +150,15 @@ export function createServer(adapter: GunGraphAdapter): express.Application {
     handleGet(adapter, req, res)
   })
 
-  app.put('/gun/nodes', (req, res) => {
+  app.put('/gun/nodes', async (req, res) => {
+    if (
+      opts &&
+      opts.preprocessPut &&
+      (await opts.preprocessPut(req, res)) === false
+    ) {
+      return
+    }
+
     handlePut(adapter, req, res)
   })
 

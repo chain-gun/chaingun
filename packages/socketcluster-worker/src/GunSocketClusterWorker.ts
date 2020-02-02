@@ -8,7 +8,7 @@ import { createServer } from '@chaingun/http-server'
 import createAdapter from '@chaingun/node-adapters'
 import { pseudoRandomText, verify } from '@chaingun/sear'
 import { GunGraphAdapter, GunGraphData, GunMsg, GunNode } from '@chaingun/types'
-import express from 'express'
+import express, { Request, Response } from 'express'
 import fs from 'fs'
 import yaml from 'js-yaml'
 import morgan from 'morgan'
@@ -116,6 +116,15 @@ export class GunSocketClusterWorker extends SCWorker {
     return this.adapter.get(soul)
   }
 
+  protected async preprocessHttpPut(
+    // tslint:disable-next-line: variable-name
+    _req: Request,
+    // tslint:disable-next-line: variable-name
+    _res: Response
+  ): Promise<void | boolean> {
+    return
+  }
+
   protected async prune(): Promise<void> {
     const before = new Date().getTime() - PEER_CHANGELOG_RETENTION
     return (
@@ -198,7 +207,9 @@ export class GunSocketClusterWorker extends SCWorker {
 
   protected setupExpress(): express.Application {
     const environment = this.options.environment
-    const app = createServer(this.adapter)
+    const app = createServer(this.adapter, {
+      preprocessPut: this.preprocessHttpPut.bind(this)
+    })
 
     if (environment === 'dev') {
       // Log every HTTP request.
@@ -324,7 +335,7 @@ export class GunSocketClusterWorker extends SCWorker {
   }
 
   protected subscribeMiddleware(req: any, next: (arg0?: Error) => void): void {
-    if (req.channel === 'gun/put' || req.channel === 'gun/get') {
+    if (req.channel === 'gun/put') {
       if (!this.isAdmin(req.socket)) {
         next(new Error(`You aren't allowed to subscribe to ${req.channel}`))
         return
