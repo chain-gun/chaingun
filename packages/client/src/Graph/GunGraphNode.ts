@@ -13,7 +13,10 @@ export class GunGraphNode {
   private readonly _graph: GunGraph
   // tslint:disable-next-line: readonly-keyword
   private _endCurQuery?: () => void
-  private readonly _updateGraph: (data: GunGraphData, replyToId?: string) => void
+  private readonly _updateGraph: (
+    data: GunGraphData,
+    replyToId?: string
+  ) => void
 
   constructor(
     graph: GunGraph,
@@ -73,7 +76,7 @@ export class GunGraphNode {
       return this
     }
 
-    this._graph.get(this.soul, this._onDirectQueryReply)
+    this._endCurQuery = this._graph.get(this.soul, this._onDirectQueryReply)
     return this
   }
 
