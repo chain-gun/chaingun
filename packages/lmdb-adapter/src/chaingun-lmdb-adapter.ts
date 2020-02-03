@@ -9,25 +9,27 @@ import {
 } from '@chaingun/types'
 import { gzip, ungzip } from 'node-gzip'
 import lmdb from 'node-lmdb'
+import { getNode, getNodeJsonString, patchGraph } from './chaingun-transaction'
 
 const DEFAULT_DB_NAME = 'gun-nodes'
-const WIDE_NODE_MARKER = 'WIDE_NODE'
-const WIDE_NODE_THRESHOLD =
+export const WIDE_NODE_MARKER = 'WIDE_NODE'
+export const WIDE_NODE_THRESHOLD =
   parseInt(process.env.GUN_LMDB_WIDE_NODE_THRESHOLD || '', 10) || 1100
-const GET_MAX_KEYS =
-  parseInt(process.env.GUN_LMDB_GET_MAX_KEYS || '', 10) || 10000
+export const GET_MAX_KEYS =
+  parseInt(process.env.GUN_LMDB_GET_MAX_KEYS || '', 10) ||
+  Math.floor(WIDE_NODE_THRESHOLD + 10)
 
 const USE_GZIP = !process.env.GUN_LMDB_DISABLE_GZIP
 
-const DEFAULT_CRDT_OPTS = {
+export const DEFAULT_CRDT_OPTS = {
   diffFn: diffGunCRDT,
   mergeFn: mergeGraph
 }
 
-type LmdbOptions = any
-type LmdbEnv = any
-type LmdbDbi = any
-type LmdbTransaction = any
+export type LmdbOptions = any
+export type LmdbEnv = any
+export type LmdbDbi = any
+export type LmdbTransaction = any
 
 export function wideNodeKey(soul: string, key = ''): string {
   return `wide:${soul}/${key}`
@@ -95,13 +97,12 @@ export function adapterFromEnvAndDbi(
       env.close()
       dbi.close()
     },
-    get: (soul: string, opts?: GunGetOpts) =>
-      get(readQueue, env, dbi, soul, opts),
+    get: (soul: string, opts?: GunGetOpts) => getNode(env, dbi, soul, opts),
     getJsonString: (soul: string, opts?: GunGetOpts) =>
-      getJsonString(readQueue, env, dbi, soul, opts),
+      getNodeJsonString(env, dbi, soul, opts),
     pruneChangelog: async (before: number) =>
       pruneChangelog(writeQueue, env, dbi, before),
-    put: (graphData: GunGraphData) => put(writeQueue, env, dbi, graphData)
+    put: (graphData: GunGraphData) => patchGraph(env, dbi, graphData)
   }
 }
 
@@ -118,6 +119,7 @@ export async function readWideNode(
       '>': stateVectors
     }
   }
+
   const cursor = new lmdb.Cursor(txn, dbi)
   const singleKey = opts && opts['.']
   const lexStart = (opts && opts['>']) || singleKey
