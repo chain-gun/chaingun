@@ -1,17 +1,18 @@
-import { GunProcessQueue } from '@chaingun/control-flow'
+// tslint:disable: no-object-mutation no-let
 import { diffGunCRDT, mergeGraph } from '@chaingun/crdt'
 import {
   GunGetOpts,
   GunGraphAdapter,
   GunGraphData,
-  GunNode,
-  GunValue
+  GunNode
 } from '@chaingun/types'
 import { gzip, ungzip } from 'node-gzip'
 import lmdb from 'node-lmdb'
-import { getNode, getNodeJsonString, patchGraph } from './chaingun-transaction'
 
 const DEFAULT_DB_NAME = 'gun-nodes'
+const EMPTY = {}
+
+let WIDE_NODE_MARKER_BUFFER: Buffer
 export const WIDE_NODE_MARKER = 'WIDE_NODE'
 export const WIDE_NODE_THRESHOLD =
   parseInt(process.env.GUN_LMDB_WIDE_NODE_THRESHOLD || '', 10) || 1100
@@ -35,6 +36,12 @@ export function wideNodeKey(soul: string, key = ''): string {
   return `wide:${soul}/${key}`
 }
 
+async function boot(): Promise<void> {
+  if (!WIDE_NODE_MARKER_BUFFER) {
+    WIDE_NODE_MARKER_BUFFER = await compress(WIDE_NODE_MARKER)
+  }
+}
+
 /**
  * Open a LMDB database as a Gun Graph Adapter
  *
@@ -50,12 +57,6 @@ export function createGraphAdapter(
   return adapterFromEnvAndDbi(env, dbi)
 }
 
-type WriteTransaction = readonly [
-  () => Promise<any>,
-  (res: any) => void,
-  (err: Error) => void
-]
-
 /**
  * Create Gun Graph Adapter from open LMDB database
  *
@@ -67,31 +68,6 @@ export function adapterFromEnvAndDbi(
   env: lmdb.Env,
   dbi: LmdbDbi
 ): GunGraphAdapter {
-  const writeQueue = new GunProcessQueue<WriteTransaction>(
-    'LMDB Write Queue',
-    'process_dupes'
-  )
-
-  const readQueue = new GunProcessQueue<WriteTransaction>(
-    'LMDB Read Queue',
-    'process_dupes'
-  )
-
-  async function processTransaction(
-    item: WriteTransaction
-  ): Promise<WriteTransaction> {
-    const [tx, ok, fail] = item
-    try {
-      ok(await tx())
-    } catch (e) {
-      fail(e)
-    }
-    return item
-  }
-
-  writeQueue.middleware.use(processTransaction)
-  readQueue.middleware.use(processTransaction)
-
   return {
     close: () => {
       env.close()
@@ -100,403 +76,9 @@ export function adapterFromEnvAndDbi(
     get: (soul: string, opts?: GunGetOpts) => getNode(env, dbi, soul, opts),
     getJsonString: (soul: string, opts?: GunGetOpts) =>
       getNodeJsonString(env, dbi, soul, opts),
-    pruneChangelog: async (before: number) =>
-      pruneChangelog(writeQueue, env, dbi, before),
+    pruneChangelog: async (before: number) => pruneChangelog(env, dbi, before),
     put: (graphData: GunGraphData) => patchGraph(env, dbi, graphData)
   }
-}
-
-export async function readWideNode(
-  dbi: LmdbDbi,
-  txn: LmdbTransaction,
-  soul: string,
-  opts?: GunGetOpts
-): Promise<GunNode> {
-  const stateVectors: Record<string, number> = {}
-  const node: any = {
-    _: {
-      '#': soul,
-      '>': stateVectors
-    }
-  }
-
-  const cursor = new lmdb.Cursor(txn, dbi)
-  const singleKey = opts && opts['.']
-  const lexStart = (opts && opts['>']) || singleKey
-  const lexEnd = (opts && opts['<']) || singleKey
-  // tslint:disable-next-line: no-let
-  let keyCount = 0
-
-  try {
-    const base = wideNodeKey(soul)
-    const startKey = lexStart ? wideNodeKey(soul, lexStart) : wideNodeKey(soul)
-    // tslint:disable-next-line: no-let
-    let dbKey = cursor.goToRange(startKey)
-
-    if (dbKey === startKey && lexStart && !singleKey) {
-      // Exclusive lex?
-      dbKey = cursor.goToNext()
-    }
-
-    while (dbKey && dbKey.indexOf(base) === 0) {
-      const key = dbKey.replace(base, '')
-
-      if (lexEnd && key > lexEnd) {
-        break
-      }
-
-      const { stateVector, value } = await readWideNodeKey(dbi, txn, soul, key)
-
-      if (stateVector) {
-        // tslint:disable-next-line: no-object-mutation
-        stateVectors[key] = stateVector
-        // tslint:disable-next-line: no-object-mutation
-        node[key] = value
-        keyCount++
-      }
-
-      dbKey = cursor.goToNext()
-
-      if (keyCount > GET_MAX_KEYS || (lexEnd && key === lexEnd)) {
-        break
-      }
-    }
-  } catch (e) {
-    throw e
-  } finally {
-    cursor.close()
-  }
-
-  return keyCount ? node : null
-}
-
-/**
- * Load Gun Node data from a LMDB database synchronously
- *
- * @param env lmdb.Env object
- * @param dbi lmdb DBI object
- * @param soul the unique identifier of the node to fetch
- */
-export async function get(
-  queue: GunProcessQueue<WriteTransaction>,
-  env: LmdbEnv,
-  dbi: LmdbDbi,
-  soul: string,
-  opts?: GunGetOpts
-): Promise<GunNode | null> {
-  if (!soul) {
-    return null
-  }
-
-  return transaction<GunNode | null>(
-    queue,
-    env,
-    async txn => {
-      const raw = await decompress(txn.getBinaryUnsafe(dbi, soul))
-
-      if (raw === WIDE_NODE_MARKER) {
-        return readWideNode(dbi, txn, soul, opts)
-      }
-
-      const node = deserialize(raw)
-
-      if (node && opts) {
-        const singleKey = opts && opts['.']
-        const lexStart = (opts && opts['>']) || singleKey
-        const lexEnd = (opts && opts['<']) || singleKey
-
-        if (!(lexStart || lexEnd)) {
-          return node
-        }
-
-        const resultState: Record<string, number> = {}
-        const result: any = {
-          _: {
-            '#': soul,
-            '>': resultState
-          }
-        }
-
-        const state = node._['>']
-        // tslint:disable-next-line: no-let
-        let keyCount = 0
-        Object.keys(state).forEach(key => {
-          if (
-            lexStart &&
-            key >= lexStart &&
-            lexEnd &&
-            key <= lexEnd &&
-            key in state
-          ) {
-            // tslint:disable-next-line: no-object-mutation
-            result[key] = node[key]
-            // tslint:disable-next-line: no-object-mutation
-            resultState[key] = state[key]
-            keyCount++
-          }
-        })
-
-        return keyCount ? result : null
-      }
-
-      return node
-    },
-    {
-      readOnly: true
-    }
-  )
-}
-
-/**
- * Load Gun Node data as a string from a LMDB database synchronously
- *
- * @param env lmdb.Env object
- * @param dbi lmdb DBI object
- * @param soul the unique identifier of the node to fetch
- */
-export async function getJsonString(
-  queue: GunProcessQueue<WriteTransaction>,
-  env: LmdbEnv,
-  dbi: LmdbDbi,
-  soul: string,
-  opts?: GunGetOpts
-): Promise<string> {
-  if (!soul) {
-    return ''
-  }
-
-  if (opts) {
-    return JSON.stringify(await get(queue, env, dbi, soul, opts))
-  }
-
-  return transaction<string>(
-    queue,
-    env,
-    async txn => {
-      const raw = await decompress(txn.getBinaryUnsafe(dbi, soul))
-
-      if (raw === WIDE_NODE_MARKER) {
-        return JSON.stringify(readWideNode(dbi, txn, soul))
-      }
-
-      return raw
-    },
-    {
-      readOnly: true
-    }
-  )
-}
-
-export async function putNode(
-  dbi: LmdbDbi,
-  txn: LmdbTransaction,
-  soul: string,
-  node: GunNode | undefined,
-  updated: GunNode,
-  opts = DEFAULT_CRDT_OPTS
-): Promise<GunNode | null> {
-  const { diffFn = diffGunCRDT, mergeFn = mergeGraph } = opts
-  const existingGraph = { [soul]: node }
-  const graphUpdates = { [soul]: updated }
-  const graphDiff = diffFn(graphUpdates, existingGraph)
-  const nodeDiff = graphDiff && graphDiff[soul]
-  if (!nodeDiff || !graphDiff) {
-    return null
-  }
-
-  const updatedGraph = mergeFn(existingGraph, graphDiff)
-  const result = updatedGraph[soul]
-
-  if (
-    result &&
-    (Object.keys(result).length >= WIDE_NODE_THRESHOLD ||
-      soul === 'changelog' ||
-      soul.slice(0, 6) === 'peers/')
-  ) {
-    // tslint:disable-next-line: no-console
-    console.log('converting to wide node', soul)
-    const buffer = await compress(WIDE_NODE_MARKER)
-    txn.putBinary(dbi, soul, buffer)
-    await putWideNode(dbi, txn, soul, result, opts)
-  } else {
-    // tslint:disable-next-line: no-expression-statement
-    const raw = await compress(serialize(result!))
-
-    txn.putBinary(dbi, soul, raw)
-  }
-
-  return nodeDiff
-}
-
-export async function readWideNodeKey(
-  dbi: LmdbDbi,
-  txn: LmdbTransaction,
-  soul: string,
-  key: string
-): Promise<{
-  readonly stateVector?: number
-  readonly value?: GunValue
-}> {
-  const dbKey = wideNodeKey(soul, key)
-  const raw = await decompress(txn.getBinaryUnsafe(dbi, dbKey))
-
-  if (!raw) {
-    return {
-      stateVector: undefined,
-      value: undefined
-    }
-  }
-
-  const { stateVector, value } = JSON.parse(raw) || {}
-
-  return {
-    stateVector,
-    value
-  }
-}
-
-export async function putWideNode(
-  dbi: LmdbDbi,
-  txn: LmdbTransaction,
-  soul: string,
-  updated: GunNode,
-  opts = DEFAULT_CRDT_OPTS
-): Promise<GunNode | null> {
-  const { diffFn = diffGunCRDT } = opts
-  const stateVectors: Record<string, number> = {}
-  const existingNode: any = {
-    _: {
-      '#': soul,
-      '>': stateVectors
-    }
-  }
-
-  for (const key in updated) {
-    if (!key) {
-      continue
-    }
-
-    const { stateVector, value } = await readWideNodeKey(dbi, txn, soul, key)
-
-    if (stateVector) {
-      // tslint:disable-next-line: no-object-mutation
-      stateVectors[key] = stateVector
-      // tslint:disable-next-line: no-object-mutation
-      existingNode[key] = value
-    }
-  }
-
-  const existingGraph = { [soul]: existingNode }
-  const graphUpdates = { [soul]: updated }
-  const graphDiff = diffFn(graphUpdates, existingGraph)
-  const nodeDiff = graphDiff && graphDiff[soul]
-
-  if (!nodeDiff) {
-    return null
-  }
-
-  for (const key in nodeDiff) {
-    if (!key) {
-      continue
-    }
-
-    const rawData = JSON.stringify({
-      stateVector: nodeDiff._['>'][key],
-      value: nodeDiff[key]
-    })
-
-    const buffer = await compress(rawData)
-    txn.putBinary(dbi, wideNodeKey(soul, key), buffer)
-  }
-
-  return nodeDiff
-}
-
-export function pruneChangelog(
-  queue: GunProcessQueue<WriteTransaction>,
-  env: LmdbEnv,
-  dbi: LmdbDbi,
-  before: number
-): Promise<void> {
-  return transaction<void>(queue, env, txn => {
-    const cursor = new lmdb.Cursor(txn, dbi)
-    const lexEnd = new Date(before).toISOString()
-    const soul = 'changelog'
-
-    try {
-      const base = wideNodeKey(soul)
-      const endKey = wideNodeKey(soul, lexEnd)
-      // tslint:disable-next-line: no-let
-      let dbKey = cursor.goToRange(endKey)
-      dbKey = cursor.goToPrev()
-
-      while (dbKey && dbKey.indexOf(base) === 0) {
-        const key = dbKey.replace(base, '')
-        if (key) {
-          txn.del(dbi, dbKey)
-        }
-        dbKey = cursor.goToPrev()
-      }
-    } catch (e) {
-      throw e
-    } finally {
-      cursor.close()
-    }
-  })
-}
-
-/**
- * Write Gun Graph data to the LMDB database synchronously
- *
- * @param env lmdb.Env object
- * @param dbi lmdb DBI object
- * @param graphData the Gun Graph data to write
- * @param opts
- */
-export async function put(
-  queue: GunProcessQueue<WriteTransaction>,
-  env: LmdbEnv,
-  dbi: LmdbDbi,
-  graphData: GunGraphData,
-  opts = DEFAULT_CRDT_OPTS
-): Promise<GunGraphData | null> {
-  if (!graphData) {
-    return null
-  }
-
-  const diff: GunGraphData = {}
-  // tslint:disable-next-line: no-let
-  let hasDiff = false
-
-  return transaction(queue, env, async txn => {
-    for (const soul in graphData) {
-      if (!soul || !graphData[soul]) {
-        continue
-      }
-
-      const raw = await decompress(txn.getBinaryUnsafe(dbi, soul))
-
-      // tslint:disable-next-line: no-let
-      let nodeDiff = null
-
-      if (raw === WIDE_NODE_MARKER) {
-        nodeDiff = await putWideNode(dbi, txn, soul, graphData[soul]!, opts)
-      } else {
-        const node = deserialize(raw) || undefined
-        nodeDiff = await putNode(dbi, txn, soul, node, graphData[soul]!, opts)
-      }
-
-      if (nodeDiff) {
-        // @ts-ignore
-        // tslint:disable-next-line
-        diff[soul] = nodeDiff
-        // tslint:disable-next-line: no-expression-statement
-        hasDiff = true
-      }
-    }
-
-    return hasDiff ? diff : null
-  })
 }
 
 /**
@@ -518,44 +100,6 @@ export function openEnvAndDbi(
   })
 
   return [env, dbi]
-}
-
-/**
- * Execute a transaction on a LMDB database
- *
- * @param queue: Write Transaction Queue
- * @param env lmdb.Env object
- * @param fn This function is passed the transaction and is expected to return synchronously
- * @param opts options for the LMDB transaction passed to beginTxn
- */
-export async function transaction<T = any>(
-  queue: GunProcessQueue<WriteTransaction>,
-  env: LmdbEnv,
-  fn: (txn: LmdbTransaction) => Promise<T> | T,
-  opts?: any
-): Promise<T> {
-  async function execute(): Promise<T> {
-    const txn: LmdbTransaction = env.beginTxn(opts)
-    // tslint:disable-next-line: no-let
-    let result: T
-    try {
-      result = await fn(txn)
-      txn.commit()
-      return result
-    } catch (e) {
-      // tslint:disable-next-line: no-console
-      console.error('lmdb transaction error', e.stack || e)
-      txn.abort()
-      throw e
-    }
-  }
-
-  const promise = new Promise<T>((ok, fail) => {
-    queue.enqueue([execute, ok, fail])
-    queue.process()
-  })
-
-  return promise
 }
 
 /**
@@ -593,4 +137,540 @@ export async function decompress(buffer?: Buffer | null): Promise<string> {
     return (await ungzip(buffer)).toString()
   }
   return buffer.toString()
+}
+
+function isWideNode(rawVal: Buffer): boolean {
+  if (rawVal && rawVal.equals(WIDE_NODE_MARKER_BUFFER)) {
+    return true
+  }
+
+  return false
+}
+
+type RawWideNodeData = Record<string, Buffer>
+type RawNodeData = null | Buffer | RawWideNodeData
+type RawGraphData = Record<string, RawNodeData>
+
+export function getRaw(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  soul: string,
+  opts?: GunGetOpts
+): RawNodeData {
+  const txn: LmdbTransaction = env.beginTxn({ readOnly: true })
+  try {
+    const raw: Buffer | null = txn.getBinary(dbi, soul)
+
+    if (!raw) {
+      return null
+    }
+
+    if (isWideNode(raw)) {
+      const result: Record<string, Buffer> = {}
+      const cursor = new lmdb.Cursor(txn, dbi)
+      const singleKey = opts && opts['.']
+      const lexStart = (opts && opts['>']) || singleKey
+      const lexEnd = (opts && opts['<']) || singleKey
+      let keyCount = 0
+
+      try {
+        const base = wideNodeKey(soul)
+        const startKey = lexStart
+          ? wideNodeKey(soul, lexStart)
+          : wideNodeKey(soul)
+        let dbKey = cursor.goToRange(startKey)
+
+        if (dbKey === startKey && lexStart && !singleKey) {
+          // Exclusive lex?
+          dbKey = cursor.goToNext()
+        }
+
+        while (dbKey && dbKey.indexOf(base) === 0) {
+          const key = dbKey.replace(base, '')
+
+          if (lexEnd && key > lexEnd) {
+            break
+          }
+
+          result[key] = txn.getBinary(dbi, dbKey)
+          dbKey = cursor.goToNext()
+          keyCount++
+
+          if (keyCount > GET_MAX_KEYS || (lexEnd && key === lexEnd)) {
+            break
+          }
+        }
+      } finally {
+        cursor.close()
+      }
+
+      return result
+    } else {
+      return raw.length ? raw : null
+    }
+  } finally {
+    txn.commit()
+  }
+}
+
+export async function decodeRaw(
+  soul: string,
+  raw: RawNodeData,
+  opts?: GunGetOpts
+): Promise<GunNode | null> {
+  if (raw instanceof Buffer) {
+    const decompressed = await decompress(raw)
+    const deserialized = deserialize(decompressed)
+
+    if (opts) {
+      const singleKey = opts && opts['.']
+      const lexStart = (opts && opts['>']) || singleKey
+      const lexEnd = (opts && opts['<']) || singleKey
+
+      if (!(lexStart || lexEnd)) {
+        return deserialized
+      }
+
+      const resultState: Record<string, number> = {}
+      const result: any = {
+        _: {
+          '#': soul,
+          '>': resultState
+        }
+      }
+
+      const state = deserialized._['>']
+      let keyCount = 0
+
+      Object.keys(state).forEach(key => {
+        if (
+          lexStart &&
+          key >= lexStart &&
+          lexEnd &&
+          key <= lexEnd &&
+          key in state
+        ) {
+          result[key] = deserialized[key]
+          resultState[key] = state[key]
+          keyCount++
+        }
+      })
+
+      return keyCount ? result : null
+    }
+
+    return deserialized
+  } else if (raw !== null && typeof raw === 'object') {
+    // wide node
+    const rawKeys = raw as Record<string, Buffer>
+    const stateVectors: Record<string, number> = {}
+    const node: any = {
+      _: {
+        '#': soul,
+        '>': stateVectors
+      }
+    }
+
+    for (const key in rawKeys) {
+      if (!key) {
+        continue
+      }
+
+      const rawKey = rawKeys[key]
+      if (!rawKey) {
+        continue
+      }
+      const decompressed = await decompress(rawKey)
+      const deserialized = JSON.parse(decompressed)
+
+      if (deserialized) {
+        const { stateVector, value } = deserialized
+        stateVectors[key] = stateVector
+        node[key] = value
+      }
+    }
+
+    return node
+  }
+
+  return null
+}
+
+export async function getNode(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  soul: string,
+  opts?: GunGetOpts
+): Promise<GunNode | null> {
+  await boot()
+  const raw = getRaw(env, dbi, soul, opts)
+  const decoded = await decodeRaw(soul, raw, opts)
+  return decoded
+}
+
+export async function getNodeJsonString(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  soul: string,
+  opts?: GunGetOpts
+): Promise<string> {
+  if (!soul) {
+    return ''
+  }
+  const raw = getRaw(env, dbi, soul, opts)
+
+  if (!raw) {
+    return ''
+  }
+
+  if (opts || typeof raw === 'object') {
+    return JSON.stringify(await getNode(env, dbi, soul, opts))
+  }
+
+  return decompress(raw)
+}
+
+export function getExistingRawTx(
+  dbi: LmdbDbi,
+  txn: LmdbTransaction,
+  data: GunGraphData | RawGraphData
+): RawGraphData {
+  const existingData: RawGraphData = {}
+  for (const soul in data) {
+    if (!soul) {
+      continue
+    }
+
+    const raw: Buffer | null = txn.getBinary(dbi, soul)
+
+    if (!raw) {
+      existingData[soul] = null
+      continue
+    }
+
+    if (isWideNode(raw)) {
+      const dataNode = data[soul]
+      const rawNode: RawWideNodeData = {}
+
+      for (const key in dataNode) {
+        if (!key || key === '_') {
+          continue
+        }
+        const dbKey = wideNodeKey(soul, key)
+        rawNode[key] = txn.getBinary(dbi, dbKey)
+      }
+
+      existingData[soul] = rawNode
+    } else {
+      existingData[soul] = raw.length ? raw : null
+    }
+  }
+
+  return existingData
+}
+
+export function getExistingRaw(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  data: GunGraphData
+): RawGraphData {
+  const txn: LmdbTransaction = env.beginTxn({ readOnly: true })
+
+  try {
+    return getExistingRawTx(dbi, txn, data)
+  } finally {
+    txn.commit()
+  }
+}
+
+export async function getPatchDiff(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  data: GunGraphData,
+  opts = DEFAULT_CRDT_OPTS
+): Promise<null | {
+  readonly diff: GunGraphData
+  readonly existing: RawGraphData
+  readonly toWrite: RawGraphData
+}> {
+  const { diffFn = diffGunCRDT, mergeFn = mergeGraph } = opts
+  const existingRaw = getExistingRaw(env, dbi, data)
+  const existing: any = {}
+
+  for (const soul in existingRaw) {
+    if (!soul) {
+      continue
+    }
+
+    const node = await decodeRaw(soul, existingRaw[soul])
+
+    if (node) {
+      existing[soul] = node
+    }
+  }
+
+  const graphDiff = diffFn(data, existing)
+
+  if (!graphDiff || !Object.keys(graphDiff).length) {
+    return null
+  }
+
+  const existingFromDiff: any = {}
+  const existingRawFromDiff: RawGraphData = {}
+
+  for (const soul in graphDiff) {
+    if (!soul) {
+      continue
+    }
+
+    existingFromDiff[soul] = existing[soul]
+
+    const existingRawNode = existingRaw[soul]
+
+    if (existingRawNode && !(existingRawNode instanceof Buffer)) {
+      const diffNode = graphDiff[soul]
+      const existingRawWideNode: RawWideNodeData = {}
+      for (const key in diffNode) {
+        if (!key || key === '_') {
+          continue
+        }
+        existingRawWideNode[key] = existingRawNode[key]
+      }
+      existingRawFromDiff[soul] = existingRawWideNode
+    } else {
+      existingRawFromDiff[soul] = existingRawNode
+    }
+  }
+
+  const updatedGraph = mergeFn(existingFromDiff, graphDiff, 'mutable')
+  const updatedRaw = await graphToRaw(updatedGraph, existingRaw)
+
+  return {
+    diff: graphDiff,
+    existing: existingRawFromDiff,
+    toWrite: updatedRaw
+  }
+}
+
+export async function patchGraph(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  data: GunGraphData,
+  opts = DEFAULT_CRDT_OPTS
+): Promise<GunGraphData | null> {
+  await boot()
+
+  while (true) {
+    const patchDiffData = await getPatchDiff(env, dbi, data, opts)
+    if (!patchDiffData) {
+      return null
+    }
+    const { diff, existing, toWrite } = patchDiffData
+
+    if (await writeRawGraph(env, dbi, toWrite, existing)) {
+      return diff
+    }
+
+    // tslint:disable-next-line: no-console
+    console.warn('unsuccessful patch, retrying', Object.keys(diff))
+  }
+}
+
+export function writeRawGraphTx(
+  dbi: LmdbDbi,
+  txn: LmdbTransaction,
+  data: RawGraphData,
+  existing: RawGraphData
+): boolean {
+  const currentRaw = getExistingRawTx(dbi, txn, existing)
+
+  for (const soul in existing) {
+    if (!soul) {
+      continue
+    }
+
+    const currentRawNode = currentRaw[soul]
+    const existingRawNode = existing[soul]
+
+    if (existingRawNode === null) {
+      if (currentRawNode === null) {
+        continue
+      }
+      return false
+    } else if (existingRawNode instanceof Buffer) {
+      if (!(currentRawNode instanceof Buffer)) {
+        return false
+      }
+
+      if (!existingRawNode.equals(currentRawNode)) {
+        return false
+      }
+    } else {
+      // Wide node
+      if (!currentRawNode || currentRawNode instanceof Buffer) {
+        return false
+      }
+
+      for (const key in existingRawNode) {
+        if (!key) {
+          continue
+        }
+        const existingKeyData = existingRawNode[key]
+        const currentKeyData = currentRawNode[key]
+
+        if (existingKeyData === currentKeyData) {
+          continue
+        } else if (
+          existingKeyData instanceof Buffer &&
+          currentKeyData instanceof Buffer &&
+          existingKeyData.equals(currentKeyData)
+        ) {
+          continue
+        }
+
+        return false
+      }
+    }
+  }
+
+  for (const soul in data) {
+    if (!soul) {
+      continue
+    }
+
+    const nodeToWrite = data[soul]
+
+    if (!nodeToWrite) {
+      // TODO txn.del(soul)?
+      continue
+    }
+
+    if (nodeToWrite instanceof Buffer) {
+      txn.putBinary(dbi, soul, nodeToWrite)
+    } else if (typeof nodeToWrite === 'object') {
+      txn.putBinary(dbi, soul, WIDE_NODE_MARKER_BUFFER)
+
+      for (const key in nodeToWrite) {
+        if (!key) {
+          continue
+        }
+
+        const dbKey = wideNodeKey(soul, key)
+        const wideValBuffer = nodeToWrite[key]
+
+        if (!wideValBuffer) {
+          // TODO: txn.del(dbKey)?
+          continue
+        }
+
+        txn.putBinary(dbi, dbKey, wideValBuffer)
+      }
+    }
+  }
+
+  return true
+}
+
+export function writeRawGraph(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  data: RawGraphData,
+  existing: RawGraphData
+): boolean {
+  const txn: LmdbTransaction = env.beginTxn()
+
+  try {
+    const result = writeRawGraphTx(dbi, txn, data, existing)
+    if (result) {
+      txn.commit()
+      return true
+    } else {
+      txn.abort()
+      return false
+    }
+  } catch (e) {
+    txn.abort()
+    throw e
+  }
+}
+
+export async function graphToRaw(
+  graph: GunGraphData,
+  existing: RawGraphData
+): Promise<RawGraphData> {
+  const result: RawGraphData = {}
+
+  for (const soul in graph) {
+    if (!soul) {
+      continue
+    }
+
+    const node = graph[soul]
+
+    if (!node) {
+      continue
+    }
+
+    const existingRawNode = existing[soul]
+    const isWide =
+      (existingRawNode &&
+        typeof existingRawNode === 'object' &&
+        !(existingRawNode instanceof Buffer)) ||
+      soul === 'changelog' ||
+      soul.slice(0, 6) === 'peers/' ||
+      Object.keys(node || EMPTY).length > WIDE_NODE_THRESHOLD
+
+    if (isWide) {
+      const rawWideNode: RawWideNodeData = {}
+      const stateVectors = node._['>']
+      for (const key in node) {
+        if (!key || key === '_') {
+          continue
+        }
+        const wideNodeVal = { stateVector: stateVectors[key], value: node[key] }
+        rawWideNode[key] = await compress(JSON.stringify(wideNodeVal))
+      }
+      result[soul] = rawWideNode
+    } else {
+      result[soul] = await compress(serialize(node))
+    }
+  }
+
+  return result
+}
+
+export function pruneChangelog(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  before: number
+): void {
+  const txn: LmdbTransaction = env.beginTxn()
+  try {
+    const cursor = new lmdb.Cursor(txn, dbi)
+    const lexEnd = new Date(before).toISOString()
+    const soul = 'changelog'
+
+    try {
+      const base = wideNodeKey(soul)
+      const endKey = wideNodeKey(soul, lexEnd)
+      // tslint:disable-next-line: no-let
+      let dbKey = cursor.goToRange(endKey)
+      dbKey = cursor.goToPrev()
+
+      while (dbKey && dbKey.indexOf(base) === 0) {
+        const key = dbKey.replace(base, '')
+        if (key) {
+          txn.del(dbi, dbKey)
+        }
+        dbKey = cursor.goToPrev()
+      }
+    } finally {
+      cursor.close()
+    }
+
+    txn.commit()
+  } catch (e) {
+    txn.abort()
+    throw e
+  }
 }

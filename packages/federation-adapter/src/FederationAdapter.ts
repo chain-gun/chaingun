@@ -285,6 +285,8 @@ export function connectToPeer(
 
   // tslint:disable-next-line: no-let
   let disconnector: () => void
+  // tslint:disable-next-line: no-let
+  let batchTimeout: NodeJS.Timeout
   ;(async () => {
     // Catch up in batches before establishing connection
     // tslint:disable-next-line: no-let
@@ -304,6 +306,9 @@ export function connectToPeer(
 
     async function writeBatch(): Promise<void> {
       if (syncedKey === lastKey) {
+        if (batchInterval) {
+          batchTimeout = setTimeout(writeBatch, batchInterval)
+        }
         return
       }
 
@@ -321,6 +326,10 @@ export function connectToPeer(
           [peerName]: lastKey
         }
       })
+
+      if (batchInterval) {
+        batchTimeout = setTimeout(writeBatch, batchInterval)
+      }
     }
 
     disconnector = peer.onChange!(([key, changes]) => {
@@ -337,11 +346,16 @@ export function connectToPeer(
     }, lastKey)
 
     if (batchInterval) {
-      setInterval(writeBatch, batchInterval)
+      writeBatch()
     }
   })()
 
-  return () => disconnector && disconnector()
+  return () => {
+    // tslint:disable-next-line: no-unused-expression
+    disconnector && disconnector()
+    // tslint:disable-next-line: no-unused-expression
+    batchTimeout && clearTimeout(batchTimeout)
+  }
 }
 
 export function connectToPeers(
