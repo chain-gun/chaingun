@@ -7,18 +7,24 @@ const DEFAULT_OPTS = {
   mergeFn: mergeGraph
 }
 
+interface MemoryAdapterOpts {
+  readonly diffFn?: typeof diffGunCRDT
+  readonly mergeFn?: typeof mergeGraph
+  readonly direct?: boolean
+}
+
 const getSync = curry(
   (
     // tslint:disable-next-line: variable-name
-    _opts: typeof DEFAULT_OPTS,
+    opts: MemoryAdapterOpts,
     graph: GunGraphData,
     soul: string
-  ): GunNode | null => clone(graph[soul]) || null
+  ): GunNode | null => (opts.direct ? graph[soul] : clone(graph[soul])) || null
 )
 
 const get = curry(
   (
-    opts: typeof DEFAULT_OPTS,
+    opts: MemoryAdapterOpts,
     graph: GunGraphData,
     soul: string
   ): Promise<GunNode | null> => Promise.resolve(getSync(opts, graph, soul))
@@ -27,7 +33,10 @@ const get = curry(
 const putSync = curry(
   (
     // tslint:disable-next-line: variable-name
-    { diffFn, mergeFn }: typeof DEFAULT_OPTS,
+    {
+      diffFn = DEFAULT_OPTS.diffFn,
+      mergeFn = DEFAULT_OPTS.mergeFn
+    }: MemoryAdapterOpts,
     graph: GunGraphData,
     graphData: GunGraphData
   ) => {
@@ -44,14 +53,16 @@ const putSync = curry(
 
 const put = curry(
   (
-    opts: typeof DEFAULT_OPTS,
+    opts: MemoryAdapterOpts,
     graph: GunGraphData,
     graphData: GunGraphData
   ): Promise<GunGraphData | null> =>
     Promise.resolve(putSync(opts, graph, graphData))
 )
 
-export function createMemoryAdapter(opts = DEFAULT_OPTS): GunGraphAdapter {
+export function createMemoryAdapter(
+  opts: MemoryAdapterOpts = DEFAULT_OPTS
+): GunGraphAdapter {
   const graph: GunGraphData = {}
 
   return {
