@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/sear",
-  "version": "0.22.0",
+  "version": "0.22.1",
   "description": "A refactor of Gun's SEA logic in TypeScript, not dependent on gun.js",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
@@ -105,5 +105,5 @@
     "singleQuote": true,
     "semi": false
   },
-  "gitHead": "702e58fdf37289e2fb9342be80be550d5964e8d6"
+  "gitHead": "f13b2ba7a6a2171875b5a4ba7af8e33525d4c5a8"
 }
