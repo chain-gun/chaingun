@@ -674,3 +674,60 @@ export function pruneChangelog(
     throw e
   }
 }
+
+type GunTransactionFunction = (adapter: GunGraphAdapter) => Promise<void>
+
+export async function gunTransaction(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  txFn: GunTransactionFunction,
+  crdtOpts = DEFAULT_CRDT_OPTS
+): Promise<GunGraphData | null> {
+  const { diffFn = diffGunCRDT, mergeFn = mergeGraph } = crdtOpts
+
+  while (true) {
+    const rawGraph: RawGraphData = {}
+    const readGraph: any = {}
+    let graphToWrite: any = {}
+
+    const adapter: GunGraphAdapter = {
+      async get(soul: string, opts?: GunGetOpts): Promise<GunNode | null> {
+        if (soul in readGraph) {
+          return readGraph[soul]
+        }
+
+        // TODO handling/merging? of opts limited gets
+
+        rawGraph[soul] = getRaw(env, dbi, soul, opts)
+        return (readGraph[soul] = await decodeRaw(soul, rawGraph[soul], opts))
+      },
+
+      putSync(graph: GunGraphData): null {
+        const putDiff = diffFn(graph, graphToWrite)
+        if (putDiff) {
+          graphToWrite = mergeFn(graphToWrite, putDiff, 'mutable')
+        }
+        return null
+      },
+
+      async put(graph: GunGraphData): Promise<null> {
+        return adapter.putSync!(graph) as null
+      }
+    }
+
+    await txFn(adapter)
+
+    const patchDiffData = await getPatchDiff(env, dbi, graphToWrite, crdtOpts)
+    if (!patchDiffData) {
+      return null
+    }
+    const { diff, toWrite } = patchDiffData
+
+    if (await writeRawGraph(env, dbi, toWrite, rawGraph)) {
+      return diff
+    }
+
+    // tslint:disable-next-line: no-console
+    console.warn('unsuccessful transaction, retrying', Object.keys(diff))
+  }
+}

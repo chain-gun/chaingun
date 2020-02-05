@@ -116,6 +116,10 @@ export class GunSocketClusterWorker extends SCWorker {
     return this.adapter.get(soul)
   }
 
+  public getPeers(): Record<string, GunGraphAdapter> {
+    return peersFromConfig()
+  }
+
   protected async preprocessHttpPut(
     // tslint:disable-next-line: variable-name
     _req: Request,
@@ -131,10 +135,6 @@ export class GunSocketClusterWorker extends SCWorker {
       this.internalAdapter.pruneChangelog &&
       this.internalAdapter.pruneChangelog(before)
     )
-  }
-
-  protected getPeers(): Record<string, GunGraphAdapter> {
-    return peersFromConfig()
   }
 
   protected async syncWithPeers(): Promise<void> {
