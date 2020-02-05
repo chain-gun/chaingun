@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/http-server",
-  "version": "0.22.1",
+  "version": "0.23.0",
   "description": "HTTP Server for ChainGun DB",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
@@ -48,7 +48,7 @@
     "node": ">=8.9"
   },
   "dependencies": {
-    "@chaingun/types": "^0.22.1",
+    "@chaingun/types": "^0.23.0",
     "express": "^4.17.1",
     "route-parser": "^0.0.5",
     "sha.js": "^2.4.11"
@@ -93,5 +93,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "f13b2ba7a6a2171875b5a4ba7af8e33525d4c5a8"
+  "gitHead": "84d8cad4723921bfda59a402eea435ce38b4f437"
 }
