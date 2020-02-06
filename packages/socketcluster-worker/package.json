@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/socketcluster-worker",
-  "version": "0.23.0",
+  "version": "0.23.1",
   "description": "SocketCluster Worker supporting gunDB",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
@@ -48,12 +48,12 @@
     "node": ">=8.9"
   },
   "dependencies": {
-    "@chaingun/client": "^0.23.0",
-    "@chaingun/federation-adapter": "^0.23.0",
-    "@chaingun/http-server": "^0.23.0",
-    "@chaingun/node-adapters": "^0.23.0",
-    "@chaingun/sear": "^0.23.0",
-    "@chaingun/types": "^0.23.0",
+    "@chaingun/client": "^0.23.1",
+    "@chaingun/federation-adapter": "^0.23.1",
+    "@chaingun/http-server": "^0.23.1",
+    "@chaingun/node-adapters": "^0.23.1",
+    "@chaingun/sear": "^0.23.1",
+    "@chaingun/types": "^0.23.1",
     "express": "^4.17.1",
     "js-yaml": "^3.13.1",
     "morgan": "^1.9.1",
@@ -101,5 +101,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "84d8cad4723921bfda59a402eea435ce38b4f437"
+  "gitHead": "99e7563d7907240a00378bdeb0b1bc19a1cb5037"
 }

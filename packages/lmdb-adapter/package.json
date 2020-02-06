@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/lmdb-adapter",
-  "version": "0.23.0",
+  "version": "0.23.1",
   "description": "Standard Gun Graph Adapter interface for LMDB",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
@@ -49,8 +49,8 @@
   },
   "dependencies": {
     "@chaingun/control-flow": "^0.1.0",
-    "@chaingun/crdt": "^0.23.0",
-    "@chaingun/types": "^0.23.0",
+    "@chaingun/crdt": "^0.23.1",
+    "@chaingun/types": "^0.23.1",
     "node-gzip": "^1.1.2",
     "node-lmdb": "^0.7.0"
   },
@@ -94,5 +94,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "84d8cad4723921bfda59a402eea435ce38b4f437"
+  "gitHead": "99e7563d7907240a00378bdeb0b1bc19a1cb5037"
 }

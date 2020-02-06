@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/socketcluster-connector",
-  "version": "0.23.0",
+  "version": "0.23.1",
   "description": "ChainGun Graph Connector for Socket Cluster",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
@@ -48,9 +48,9 @@
     "node": ">=8.9"
   },
   "dependencies": {
-    "@chaingun/client": "^0.23.0",
-    "@chaingun/sear": "^0.23.0",
-    "@chaingun/types": "^0.23.0",
+    "@chaingun/client": "^0.23.1",
+    "@chaingun/sear": "^0.23.1",
+    "@chaingun/types": "^0.23.1",
     "socketcluster-client": "^14.3.1"
   },
   "devDependencies": {
@@ -91,5 +91,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "84d8cad4723921bfda59a402eea435ce38b4f437"
+  "gitHead": "99e7563d7907240a00378bdeb0b1bc19a1cb5037"
 }
