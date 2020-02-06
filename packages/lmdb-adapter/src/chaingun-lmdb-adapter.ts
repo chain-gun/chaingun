@@ -314,6 +314,7 @@ export async function getNodeJsonString(
   soul: string,
   opts?: GunGetOpts
 ): Promise<string> {
+  await boot()
   if (!soul) {
     return ''
   }
@@ -714,6 +715,7 @@ export async function gunTransaction(
   crdtOpts = DEFAULT_CRDT_OPTS
 ): Promise<GunGraphData | null> {
   const { diffFn = diffGunCRDT, mergeFn = mergeGraph } = crdtOpts
+  await boot()
 
   while (true) {
     const rawGraph: RawGraphData = {}
