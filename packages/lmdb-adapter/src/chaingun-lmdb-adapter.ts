@@ -452,7 +452,7 @@ export async function getPatchDiff(
   }
 }
 
-export async function patchGraph(
+export async function patchGraphFull(
   env: LmdbEnv,
   dbi: LmdbDbi,
   data: GunGraphData,
@@ -474,6 +474,36 @@ export async function patchGraph(
     // tslint:disable-next-line: no-console
     console.warn('unsuccessful patch, retrying', Object.keys(diff))
   }
+}
+
+export async function patchGraph(
+  env: LmdbEnv,
+  dbi: LmdbDbi,
+  data: GunGraphData,
+  opts = DEFAULT_CRDT_OPTS
+): Promise<GunGraphData | null> {
+  const diff: any = {}
+
+  for (const soul in data) {
+    if (!soul) {
+      continue
+    }
+
+    const nodeDiff = await patchGraphFull(
+      env,
+      dbi,
+      {
+        [soul]: data[soul]
+      },
+      opts
+    )
+
+    if (nodeDiff) {
+      diff[soul] = nodeDiff[soul]
+    }
+  }
+
+  return Object.keys(diff).length ? diff : null
 }
 
 export function writeRawGraphTx(
