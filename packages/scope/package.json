@@ -1,6 +1,6 @@
 {
   "name": "@chaingun/scope",
-  "version": "0.23.2",
+  "version": "0.23.7",
   "description": "Cached query tools for gunDB useful for SSR",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
@@ -89,5 +89,5 @@
       "**/*.spec.js"
     ]
   },
-  "gitHead": "e6b4ab2ee187bf5e5c41003579a9e54845de9e46"
+  "gitHead": "3ef5361da0254416cfdd89c6d9b2eeb2a8ea42a5"
 }
