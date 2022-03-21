@@ -52,7 +52,7 @@
     "@chaingun/crdt": "^0.23.7",
     "@chaingun/types": "^0.23.7",
     "node-gzip": "^1.1.2",
-    "node-lmdb": "^0.7.0"
+    "node-lmdb": "^0.9.7"
   },
   "devDependencies": {
     "@bitjson/npm-scripts-info": "^1.0.0",
